@@ -24,6 +24,11 @@ if (file_exists($autoload_path)) {
  */
 function extract_pdf_raw_text($pdf_file_path)
 {
+    if (empty($pdf_file_path) || !is_string($pdf_file_path)) {
+        error_log('Invalid PDF file path provided.');
+        return '';
+    }
+
     if (!file_exists($pdf_file_path)) {
         error_log('PDF file does not exist: ' . $pdf_file_path);
         return '';
@@ -38,14 +43,13 @@ function extract_pdf_raw_text($pdf_file_path)
         $pdf = new Parser();
         $pdfDocument = $pdf->parseFile($pdf_file_path);
         $raw_text = $pdfDocument->getText();
-        error_log('Extracted Raw Text: ' . $raw_text);
+        
         return $raw_text;
     } catch (Exception $e) {
         error_log('Error parsing PDF: ' . $e->getMessage());
         return '';
     }
 }
-
 
 /**
  * Extract images from a PDF and save them to /pdf-images/, avoiding duplicates in hash-images.
@@ -55,6 +59,11 @@ function extract_pdf_raw_text($pdf_file_path)
  */
 function extract_pdf_images($pdf_file_path)
 {
+    if (empty($pdf_file_path) || !is_string($pdf_file_path)) {
+        error_log('Invalid PDF file path provided.');
+        return [];
+    }
+
     $images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/';
     $hash_images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/hash-images/';
 
@@ -130,56 +139,88 @@ function generate_word_jc()
         wp_send_json_error(['message' => 'Invalid request']);
     }
 
-    // ✅ Fix: Read POST variables without JSON decode
+    // ✅ Read POST variables
     $client_info = $_POST['client_info'] ?? [];
     $quote_info = $_POST['quote_info'] ?? [];
     $items = $_POST['items'] ?? [];
     $images = $_POST['images'] ?? [];
     $extra_instructions = $_POST['extra_instructions'] ?? [];
 
-    error_log(print_r($_POST, true)); // ✅ Debugging added
+    error_log(print_r($_POST, true)); // ✅ Debugging
 
     $word = new PhpWord();
+    
+    // ✅ Single Section (Prevents blank pages)
     $section = $word->addSection();
-    $section->addText('Job Card', ['bold' => true, 'size' => 20, 'alignment' => 'center']);
-    $section->addTextBreak(2);
 
-    // ✅ Fix: Properly adding data
-    $section->addText('Client Information', ['bold' => true, 'size' => 14]);
+    // ✅ Add Centered Header
+    $header = $section->addHeader();
+    $header->addText("Prompt Roofing Job Card | " . date('d M Y'), [
+        'size' => 8,
+        'color' => '888888',
+        'italic' => true
+    ], ['alignment' => 'center']);  // ✅ Centered Header
+
+    // ✅ Add Centered Footer (Page Numbers)
+    $footer = $section->addFooter();
+    $footer->addPreserveText("Page {PAGE} of {NUMPAGES}", [
+        'size' => 8,
+        'color' => '888888'
+    ], ['alignment' => 'center']);
+
+    // ✅ Main Content
+    $section->addText('Job Card', ['bold' => true, 'size' => 18, 'alignment' => 'center']);
+    
+    // ✅ Client Information
+    $section->addText('Client Information', ['bold' => true, 'size' => 10]);
     foreach (['name', 'address', 'email', 'phone'] as $field) {
         $section->addText(ucfirst($field) . ': ' . ($client_info[$field] ?? 'N/A'));
     }
     $section->addTextBreak(1);
 
-    $section->addText('Quote Information', ['bold' => true, 'size' => 14]);
+    // ✅ Quote Information
+    $section->addText('Quote Information', ['bold' => true, 'size' => 10]);
     foreach (['quote_number', 'quote_date', 'expiry_date'] as $field) {
         $section->addText(ucfirst(str_replace('_', ' ', $field)) . ': ' . ($quote_info[$field] ?? 'N/A'));
     }
     $section->addTextBreak(1);
 
-    // ✅ Fix: Line Items with Extra Instructions
-    $section->addText('Line Items', ['bold' => true, 'size' => 14]);
+    // ✅ Line Items with Extra Instructions
+    $section->addText('Line Items', ['bold' => true, 'size' => 12]);
     foreach ($items as $index => $item) {
+        $extra_text = $extra_instructions[$index] ?? ''; // ✅ Correct way to access
+
         $section->addText("Item: " . ($item['item_name'] ?? 'N/A'));
-        $section->addText("Extra Instructions: " . ($extra_instructions["extra_instructions[$index]"] ?? 'N/A'));
+        $section->addText("Extra Instructions: " . $extra_text);
         $section->addTextBreak(1);
+        $section->addLine(['weight' => 0.5, 'width' => 450, 'height' => 0, 'color' => 'CCCCCC']);
     }
 
-    // ✅ Fix: Images now added properly
+    // ✅ Images displayed side by side
     if (!empty($images)) {
-        $section->addText('Site Images', ['bold' => true, 'size' => 14]);
+        $section->addText('Site Images', ['bold' => true, 'size' => 12]);
+
+        // Create table for images
+        $table = $section->addTable();
+        $image_count = 0;
+        $max_images_per_row = 3;
+
         foreach ($images as $image_url) {
             $image_path = str_replace(plugin_dir_url(__FILE__) . '../pdf-images/', PR_QUOTES_PLUGIN_DIR . 'pdf-images/', $image_url);
             if (file_exists($image_path)) {
-                $section->addImage($image_path, ['width' => 300, 'height' => 200]);
-                $section->addTextBreak(1);
+                if ($image_count % $max_images_per_row === 0) {
+                    $table->addRow();
+                }
+                $cell = $table->addCell(1800);
+                $cell->addImage($image_path, ['width' => 150, 'height' => 110]);
+                $image_count++;
             }
         }
     } else {
         $section->addText("No images available.");
     }
 
-    // ✅ Fix: Filename now includes Quote Number & Client Name
+    // ✅ Filename with Quote Number & Client Name
     $quote_number = $quote_info['quote_number'] ?? 'N/A';
     $client_name = preg_replace('/[^a-zA-Z0-9]/', '_', $client_info['name'] ?? 'N/A');
     $filename = "jc-{$quote_number}-{$client_name}.docx";
@@ -188,14 +229,33 @@ function generate_word_jc()
     $file_path = $upload_dir['path'] . '/' . $filename;
     $file_url = $upload_dir['url'] . '/' . $filename;
 
+    // ✅ Save Word Document
     $objWriter = IOFactory::createWriter($word, 'Word2007');
     $objWriter->save($file_path);
+
+    // ✅ Delete Images in `pdf-images/` After Job Card is Processed
+    delete_pdf_images();
 
     wp_send_json_success(['download_url' => $file_url]);
 }
 add_action('wp_ajax_generate_word_jc', 'generate_word_jc');
 
+/**
+ * Delete all images inside 'pdf-images/' but leave 'hash-images/' untouched.
+ */
+function delete_pdf_images()
+{
+    $images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/';
 
+    // Ensure the directory exists before deleting
+    if (is_dir($images_dir)) {
+        foreach (glob($images_dir . '*.{jpg,png}', GLOB_BRACE) as $file) {
+            if (is_file($file)) {
+                unlink($file);
+            }
+        }
+    }
+}
 
 
 
@@ -274,11 +334,6 @@ function parse_client_info(string $raw_text): array
     ];
 }
 
-
-
-
-
-
 /**
  * Parse quote details (number, date, expiry date).
  */
@@ -295,30 +350,65 @@ function parse_quote_info(string $raw_text): array
     ];
 }
 
+
+
 /**
- * Parse line items from raw text.
+ * Parse line items from raw text, ensuring unwanted text is removed.
  */
 function parse_line_items(string $raw_text): array
 {
-    preg_match('/Hope to hear from you soon\.(.*?)EXCLUSIONS/s', $raw_text, $line_item_section);
+    error_log('Parsing Line Items: ' . $raw_text); // Log the raw text being parsed
 
-    if (empty($line_item_section[1])) {
-        return [];
+    $line_item_text = '';
+
+    // **Step 1: Check if "Hope to hear from you soon." exists**
+    if (strpos($raw_text, 'Hope to hear from you soon.') !== false) {
+        // **Extract text between "Hope to hear from you soon." and "Total"**
+        if (preg_match('/Hope to hear from you soon\.(.*?)Total/s', $raw_text, $matches)) {
+            $line_item_text = trim($matches[1] ?? '');
+        }
+    } else {
+        // **Fallback: Extract text between "EXPIRY DATE" and "Total"**
+        if (preg_match('/EXPIRY DATE[\s\S]*?Total/', $raw_text, $matches)) {
+            $line_item_text = trim($matches[0] ?? '');
+            // Remove everything between "EXPIRY DATE" and "Your Roofing expert" plus 13 characters
+            $line_item_text = preg_replace('/EXPIRY DATE[\s\S]*?Your Roofing expert.{13}/', '', $line_item_text);
+        }
     }
 
-    preg_match_all('/(.*?)(\d{1,3}[,\.]?\d{1,3}[,\.]?\d{1,3}\.\d{2})/s', $line_item_section[1], $line_items);
+    // **Step 2: Ensure "Total" is removed**
+    $line_item_text = str_replace('Total', '', $line_item_text);
+
+    error_log('Cleaned Line Item Section: ' . $line_item_text);
+
+    // **Step 3: Extract line items with prices**
+    preg_match_all('/(.*?)(\d{1,3}[,\.]?\d{1,3}[,\.]?\d{1,3}\.\d{2})/s', $line_item_text, $matches);
 
     $items = [];
-    foreach ($line_items[1] as $index => $item) {
-        if (!empty($line_items[2][$index])) {
+    foreach ($matches[1] as $index => $item) {
+        if (!empty($matches[2][$index])) {
             $items[] = [
                 'item_name' => trim($item),
-                'total_price' => trim($line_items[2][$index]),
+                'total_price' => trim($matches[2][$index]),
             ];
         }
     }
+
+    // **Ensure at least an empty placeholder item is returned**
+    if (empty($items)) {
+        error_log('No valid line items extracted. Returning a placeholder.');
+        return [
+            [
+                'item_name' => 'No line items found',
+                'total_price' => '0.00',
+            ],
+        ];
+    }
+
     return $items;
 }
+
+
 
 /**
  * Parse total price and acceptance info.
@@ -366,8 +456,6 @@ function extract_pdf_data(string $pdf_file_path): array
         'pdf_path' => $pdf_file_path,
     ];
 }
-
-
 
 /**
  * Display extracted quote data in the admin page.

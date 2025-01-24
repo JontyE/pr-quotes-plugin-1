@@ -1,12 +1,16 @@
 <?php
 
 
-// Ensure Bootstrap and Dark Mode styles are loaded in the admin panel
-function pr_quotes_enqueue_admin_styles() {
+function pr_quotes_enqueue_admin_assets() {
     wp_enqueue_style('bootstrap-css', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css');
+    wp_enqueue_script('jquery'); // ✅ Ensure jQuery is available
     wp_enqueue_script('bootstrap-js', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js', array('jquery'), null, true);
+
+    // ✅ Fix: Use `plugin_dir_path()` and check the correct path
+    wp_enqueue_script('pr-quotes-admin-js', plugin_dir_url(__FILE__) . 'includes/admin.js', array('jquery'), null, true);
 }
-add_action('admin_enqueue_scripts', 'pr_quotes_enqueue_admin_styles');
+add_action('admin_enqueue_scripts', 'pr_quotes_enqueue_admin_assets');
+
 
 // Add admin menu item
 function pr_quotes_add_admin_menu() {
@@ -117,7 +121,6 @@ jQuery(document).ready(function($) {
 </script>
 
 
-
 <!-- Upload Tab Job Card -->
 <div class="tab-content mt-3">
     <div id="upload" class="tab-pane fade show active">
@@ -222,7 +225,15 @@ jQuery(document).ready(function($) {
         <?php endif; ?> <!-- Closing tag for the quote_data check -->
 
     </div> <!-- Closing for #upload -->
+    <div id="download-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+    background:white; padding:20px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.3); width:300px; text-align:center;">
+    <h4>Downloading Job Card...</h4>
+    <div style="height:10px; background:#ddd; border-radius:5px; overflow:hidden;">
+        <div id="progress-bar" style="width:0%; height:100%; background:#28a745;"></div>
+    </div>
+</div>
 </div> <!-- Closing for .tab-content -->
+
 
 <?php 
 
@@ -265,13 +276,26 @@ function pr_handle_pdf_upload()
 add_action('wp_ajax_pr_handle_pdf_upload', 'pr_handle_pdf_upload');
 ?>
 <script>
-jQuery(document).ready(function($) {
-    $("#process-job-card").on("click", function() {
+jQuery(document).ready(function ($) {
+    $("#process-job-card").on("click", function () {
         let extraInstructions = {};
-        $("textarea[name^='extra_instructions']").each(function() {
-            extraInstructions[$(this).attr("name")] = $(this).val();
+        $("textarea[name^='extra_instructions']").each(function () {
+            let index = $(this).attr("name").match(/\d+/)[0]; // Extract index
+            extraInstructions[index] = $(this).val();
         });
 
+        // ✅ Show the popup window
+        $("#download-popup").fadeIn(200);
+
+        // ✅ Animate progress bar (fills in 2.5s)
+        $("#progress-bar").css("width", "0%").animate({ width: "100%" }, 2500);
+
+        // ✅ Hide popup after 4s
+        setTimeout(() => {
+            $("#download-popup").fadeOut(300);
+        }, 4000);
+
+        // ✅ AJAX request to process the job card
         $.ajax({
             url: ajaxurl,
             type: "POST",
@@ -284,23 +308,21 @@ jQuery(document).ready(function($) {
                 extra_instructions: extraInstructions,
                 nonce: "<?php echo wp_create_nonce('generate_word_jc'); ?>"
             },
-            success: function(response) {
+            success: function (response) {
                 if (response.success) {
-                    window.location.href = response.data.download_url;
+                    setTimeout(() => {
+                        window.location.href = response.data.download_url;
+                    }, 2500); // ✅ Delay download until progress completes
                 } else {
                     alert("Error: " + response.data.message);
                 }
             },
-            error: function(xhr, status, error) {
+            error: function (xhr, status, error) {
                 alert("AJAX request failed: " + xhr.responseText);
             }
         });
     });
 });
-
-
-
-
 
 </script>
 
