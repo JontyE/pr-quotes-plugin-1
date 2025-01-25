@@ -1,15 +1,6 @@
 <?php
 
 
-function pr_quotes_enqueue_admin_assets() {
-    wp_enqueue_style('bootstrap-css', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css');
-    wp_enqueue_script('jquery'); // ✅ Ensure jQuery is available
-    wp_enqueue_script('bootstrap-js', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js', array('jquery'), null, true);
-
-    // ✅ Fix: Use `plugin_dir_path()` and check the correct path
-    wp_enqueue_script('pr-quotes-admin-js', plugin_dir_url(__FILE__) . 'includes/admin.js', array('jquery'), null, true);
-}
-add_action('admin_enqueue_scripts', 'pr_quotes_enqueue_admin_assets');
 
 
 // Add admin menu item
@@ -36,8 +27,14 @@ function pr_display_uploaded_file($upload_url) {
 
 // Render the admin page
 function pr_quotes_render_admin_page() {
-    $quote_data = [];
-    $upload_url = ''; // Initialize variable
+    $quote_data = [
+        'client_info' => [],
+        'quote_info' => [],
+        'items' => [],
+        'images' => []
+    ]; // Ensure it's always initialized
+
+    $upload_url = '';
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['pdf_file'])) {
         $upload_dir = wp_upload_dir();
@@ -45,25 +42,18 @@ function pr_quotes_render_admin_page() {
 
         if (move_uploaded_file($_FILES['pdf_file']['tmp_name'], $pdf_path)) {
             require_once plugin_dir_path(__FILE__) . 'pdf-processing.php';
-            $quote_data = extract_pdf_data($pdf_path);
+            $quote_data = extract_pdf_data($pdf_path) ?? $quote_data;
             $upload_url = $upload_dir['url'] . '/' . basename($_FILES['pdf_file']['name']);
-
-            if (empty($quote_data)) {
-                echo '<div class="alert alert-warning">No data could be extracted from the PDF.</div>';
-            }
-        } else {
-            echo '<div class="alert alert-danger">File upload failed.</div>';
         }
     }
+
 ?>
 
 <div class="wrap container-fluid">
     <h1 class="text-center">PR Quotes Admin Panel</h1>
 
     <ul class="nav nav-tabs">
-        <li class="nav-item">
-            <a class="nav-link" data-bs-toggle="tab" href="#upload">Job Card</a>
-        </li>
+    
         <li class="nav-item">
             <a class="nav-link" data-bs-toggle="tab" href="#quotes">Quotes</a>
         </li>
@@ -131,7 +121,9 @@ jQuery(document).ready(function($) {
         </form>
 
         <!-- Process and return to Job Card to screen -->
-        <?php if (!empty($quote_data)) : ?>
+        <?php 
+        $quote_data = $quote_data ?? []; // ✅ Ensure variable is always initialized
+        if (!empty($quote_data)) : ?>
             <div class="table-responsive">
                 <table class="table table-striped table-bordered w-100">
                     <thead class="table-dark">
@@ -223,15 +215,17 @@ jQuery(document).ready(function($) {
             <?php pr_display_uploaded_file($upload_url); ?>
 
         <?php endif; ?> <!-- Closing tag for the quote_data check -->
-
-    </div> <!-- Closing for #upload -->
-    <div id="download-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+        <div id="download-popup" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
     background:white; padding:20px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.3); width:300px; text-align:center;">
     <h4>Downloading Job Card...</h4>
     <div style="height:10px; background:#ddd; border-radius:5px; overflow:hidden;">
         <div id="progress-bar" style="width:0%; height:100%; background:#28a745;"></div>
     </div>
 </div>
+
+
+    </div> <!-- Closing for #upload -->
+
 </div> <!-- Closing for .tab-content -->
 
 
@@ -284,47 +278,59 @@ jQuery(document).ready(function ($) {
             extraInstructions[index] = $(this).val();
         });
 
-        // ✅ Show the popup window
-        $("#download-popup").fadeIn(200);
-
-        // ✅ Animate progress bar (fills in 2.5s)
+        $("#download-popup").css("display", "block").fadeIn(200);
         $("#progress-bar").css("width", "0%").animate({ width: "100%" }, 2500);
+        setTimeout(() => { $("#download-popup").fadeOut(300); }, 4000);
 
-        // ✅ Hide popup after 4s
-        setTimeout(() => {
-            $("#download-popup").fadeOut(300);
-        }, 4000);
+        // ✅ Ensure Data Exists Before Sending Request
+        let clientInfo = $("#client_info").data("info") || {};
+        let quoteInfo = $("#quote_info").data("info") || {};
+        let items = $("#items").data("info") || [];
+        let images = $("#images").data("info") || [];
 
-        // ✅ AJAX request to process the job card
+        console.log("🔍 Sending AJAX Data:", {
+            client_info: clientInfo,
+            quote_info: quoteInfo,
+            items: items,
+            images: images,
+            extra_instructions: extraInstructions
+        });
+
+        // ✅ Send AJAX Request
         $.ajax({
             url: ajaxurl,
             type: "POST",
             data: {
                 action: "generate_word_jc",
-                client_info: <?php echo json_encode($quote_data['client_info'] ?? []); ?>,
-                quote_info: <?php echo json_encode($quote_data['quote_info'] ?? []); ?>,
-                items: <?php echo json_encode($quote_data['items'] ?? []); ?>,
-                images: <?php echo json_encode($quote_data['images'] ?? []); ?>,
+                client_info: clientInfo,
+                quote_info: quoteInfo,
+                items: items,
+                images: images,
                 extra_instructions: extraInstructions,
                 nonce: "<?php echo wp_create_nonce('generate_word_jc'); ?>"
             },
             success: function (response) {
+                console.log("✅ AJAX Success:", response);
                 if (response.success) {
                     setTimeout(() => {
                         window.location.href = response.data.download_url;
-                    }, 2500); // ✅ Delay download until progress completes
+                    }, 2500);
                 } else {
-                    alert("Error: " + response.data.message);
+                    alert("⚠️ Error: " + response.data.message);
                 }
             },
             error: function (xhr, status, error) {
+                console.error("❌ AJAX Error:", xhr.responseText);
                 alert("AJAX request failed: " + xhr.responseText);
             }
         });
     });
 });
 
+
 </script>
+
+
 
 
 
@@ -474,4 +480,28 @@ jQuery(document).ready(function($) {
     </div>
 </div>
 
-<?php } ?>
+<?php }
+
+function pr_quotes_enqueue_admin_scripts() {
+    wp_enqueue_script('pr-quotes-admin', plugin_dir_url(__FILE__) . 'admin.js', array('jquery'), null, true);
+
+    wp_localize_script('pr-quotes-admin', 'pr_quotes', array(
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('generate_word_jc')
+    ));
+}
+add_action('admin_enqueue_scripts', 'pr_quotes_enqueue_admin_scripts');
+
+
+function pr_render_job_card_page() {
+    ob_start();
+    if (function_exists('pr_quotes_render_admin_page')) {
+        pr_quotes_render_admin_page();
+    } else {
+        echo '<div class="alert alert-danger">Error: Job Card function missing.</div>';
+    }
+    return ob_get_clean();
+}
+add_shortcode('pr_job_card', 'pr_render_job_card_page');
+?>
+

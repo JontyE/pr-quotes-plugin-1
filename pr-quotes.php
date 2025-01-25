@@ -37,3 +37,21 @@ function pr_quotes_uninstall() {
 
 
 
+function pr_quotes_enqueue_scripts() {
+    wp_enqueue_script('pr-quotes-js', plugin_dir_url(__FILE__) . 'includes/admin.js', array('jquery'), null, true);
+    wp_localize_script('pr-quotes-js', 'pr_quotes_ajax', array(
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('generate_word_jc')
+    ));
+}
+add_action('wp_enqueue_scripts', 'pr_quotes_enqueue_scripts');
+
+
+
+// Register shortcode to display the Job Card tab on a WordPress page
+function pr_quotes_job_card_shortcode() {
+    ob_start(); // Buffer output to avoid conflicts
+    require_once plugin_dir_path(__FILE__) . 'includes/job-card-page.php';
+    return ob_get_clean(); // Return buffered content
+}
+add_shortcode('pr_job_card', 'pr_quotes_job_card_shortcode');

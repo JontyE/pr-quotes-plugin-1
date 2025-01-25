@@ -57,78 +57,88 @@ function extract_pdf_raw_text($pdf_file_path)
  * @param string $pdf_file_path Path to the PDF file.
  * @return array List of unique saved image paths.
  */
-function extract_pdf_images($pdf_file_path)
-{
-    if (empty($pdf_file_path) || !is_string($pdf_file_path)) {
-        error_log('Invalid PDF file path provided.');
-        return [];
-    }
 
-    $images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/';
-    $hash_images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/hash-images/';
-
-    // Ensure both folders exist
-    if (!file_exists($images_dir)) {
-        mkdir($images_dir, 0755, true);
-    }
-    if (!file_exists($hash_images_dir)) {
-        mkdir($hash_images_dir, 0755, true);
-    }
-
-    $parser = new Parser();
-    $pdf = $parser->parseFile($pdf_file_path);
-    $objects = $pdf->getObjectsByType('XObject');
-
-    // SHA1 hash of the unwanted image
-    $excluded_image_hash = '3cb93dbe5d2e6aa536cfe7d511d9eb69';
-
-    // Load existing images and their hashes from pdf-images/
-    $existing_images = [];
-    foreach (glob($images_dir . "*.{jpg,png}", GLOB_BRACE) as $file) {
-        $existing_images[sha1_file($file)] = $file;  
-    }
-
-    // Load existing images from hash-images/ to exclude them
-    $excluded_hashes = [];
-    foreach (glob($hash_images_dir . "*.{jpg,png}", GLOB_BRACE) as $file) {
-        $excluded_hashes[sha1_file($file)] = true;
-    }
-
-    $saved_images = [];
-
-    foreach ($objects as $key => $object) {
-        if ($object->get('Subtype') == 'Image') {
-            $image_data = $object->getContent();
-            $image_hash = sha1($image_data);
-
-            // Skip if the image is in hash-images/
-            if (isset($excluded_hashes[$image_hash])) {
-                error_log("Skipping previously deleted image: $image_hash");
-                continue;
-            }
-
-            // Skip if the image is excluded
-            if ($image_hash === $excluded_image_hash) {
-                error_log("Excluded unwanted image: $image_hash");
-                continue;
-            }
-
-            // Skip if the image already exists in pdf-images/
-            if (isset($existing_images[$image_hash])) {
-                error_log("Skipping duplicate image: $image_hash");
-                continue;
-            }
-
-            $image_extension = ($object->get('Filter') === 'DCTDecode') ? 'jpg' : 'png';
-            $image_path = $images_dir . 'image_' . time() . "_$key.$image_extension";
-
-            file_put_contents($image_path, $image_data);
-            $saved_images[] = plugin_dir_url(__FILE__) . '../pdf-images/' . basename($image_path);
-        }
-    }
-
-    return $saved_images;
-}
+ function extract_pdf_images($pdf_file_path)
+ {
+     if (empty($pdf_file_path) || !is_string($pdf_file_path)) {
+         error_log('❌ Invalid PDF file path provided.');
+         return [];
+     }
+ 
+     // ✅ Get Plugin Root Directory (Ensure it is at plugin root, not "includes/")
+     $plugin_root_dir = dirname(__DIR__, 1); // Moves up to plugin base folder
+     $images_dir = $plugin_root_dir . '/pdf-images/';
+     $hash_images_dir = $images_dir . 'hash-images/';
+     
+     // ✅ Correct URL for Image Access
+     $plugin_url = plugin_dir_url(__FILE__) . '../pdf-images/'; // Matches plugin root URL
+ 
+     // ✅ Ensure Directories Exist
+     if (!file_exists($images_dir)) {
+         mkdir($images_dir, 0755, true);
+     }
+     if (!file_exists($hash_images_dir)) {
+         mkdir($hash_images_dir, 0755, true);
+     }
+ 
+     // ✅ Initialize PDF Parser
+     $parser = new Parser();
+     $pdf = $parser->parseFile($pdf_file_path);
+     $objects = $pdf->getObjectsByType('XObject');
+ 
+     // ✅ Load Existing Image Hashes
+     $existing_images = [];
+     foreach (glob($images_dir . "*.{jpg,png}", GLOB_BRACE) as $file) {
+         $existing_images[sha1_file($file)] = $file;
+     }
+ 
+     // ✅ Load Excluded Image Hashes
+     $excluded_hashes = [];
+     foreach (glob($hash_images_dir . "*.{jpg,png}", GLOB_BRACE) as $file) {
+         $excluded_hashes[sha1_file($file)] = true;
+     }
+ 
+     $saved_images = [];
+ 
+     foreach ($objects as $key => $object) {
+         if ($object->get('Subtype') == 'Image') {
+             $image_data = $object->getContent();
+             $image_hash = sha1($image_data);
+ 
+             // ✅ Skip Excluded Images
+             if (isset($excluded_hashes[$image_hash])) {
+                 error_log("🚫 Excluded Image: $image_hash");
+                 continue;
+             }
+ 
+             // ✅ Skip Duplicates
+             if (isset($existing_images[$image_hash])) {
+                 error_log("⚠️ Skipping Duplicate Image: $image_hash");
+                 continue;
+             }
+ 
+             // ✅ Determine Image Type
+             $image_extension = ($object->get('Filter') === 'DCTDecode') ? 'jpg' : 'png';
+             $image_filename = 'image_' . time() . "_$key.$image_extension";
+             $image_path = $images_dir . $image_filename;
+ 
+             // ✅ Save Image
+             if (file_put_contents($image_path, $image_data)) {
+                 error_log("✅ Image Saved: $image_path");
+                 $image_url = $plugin_url . $image_filename;
+                 $saved_images[] = $image_url;
+             } else {
+                 error_log("❌ Failed to Save Image: $image_path");
+             }
+         }
+     }
+ 
+     return $saved_images;
+ }
+ 
+ 
+ 
+ 
 
 /**
  * Generate a Word document for the job card.
@@ -137,31 +147,53 @@ function generate_word_jc()
 {
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'generate_word_jc')) {
         wp_send_json_error(['message' => 'Invalid request']);
+        exit;
     }
 
-    // ✅ Read POST variables
+    // ✅ Log Received Data for Debugging
+    error_log("🔍 Received Data in generate_word_jc: " . print_r($_POST, true));
+
     $client_info = $_POST['client_info'] ?? [];
     $quote_info = $_POST['quote_info'] ?? [];
     $items = $_POST['items'] ?? [];
     $images = $_POST['images'] ?? [];
     $extra_instructions = $_POST['extra_instructions'] ?? [];
 
-    error_log(print_r($_POST, true)); // ✅ Debugging
+    // ✅ Validate Required Data
+    if (empty($client_info) || empty($quote_info) || empty($items)) {
+        error_log("❌ Missing required data.");
+        wp_send_json_error(['message' => 'Missing required data.']);
+        exit;
+    }
 
-    $word = new PhpWord();
-    
-    // ✅ Single Section (Prevents blank pages)
-    $section = $word->addSection();
+    // ✅ Define Plugin Root Path
+    $plugin_root_dir = plugin_dir_path(__DIR__);
+    $word_job_cards_dir = $plugin_root_dir . 'word-job-cards/';
 
-    // ✅ Add Centered Header
+    // ✅ Ensure Directory Exists
+    if (!file_exists($word_job_cards_dir)) {
+        mkdir($word_job_cards_dir, 0755, true);
+    }
+
+    // ✅ Generate File Name
+    $quote_number = !empty($quote_info['quote_number']) ? preg_replace('/[^a-zA-Z0-9]/', '_', $quote_info['quote_number']) : 'default_quote';
+    $client_name = !empty($client_info['name']) ? preg_replace('/[^a-zA-Z0-9]/', '_', $client_info['name']) : 'default_client';
+    $filename = "jc-{$quote_number}-{$client_name}.docx";
+    $file_path = $word_job_cards_dir . $filename;
+
+    // ✅ Create Word Document
+    $phpWord = new \PhpOffice\PhpWord\PhpWord();
+    $section = $phpWord->addSection();
+
+    // ✅ Add Header
     $header = $section->addHeader();
     $header->addText("Prompt Roofing Job Card | " . date('d M Y'), [
         'size' => 8,
         'color' => '888888',
         'italic' => true
-    ], ['alignment' => 'center']);  // ✅ Centered Header
+    ], ['alignment' => 'center']);
 
-    // ✅ Add Centered Footer (Page Numbers)
+    // ✅ Add Footer with Page Numbers
     $footer = $section->addFooter();
     $footer->addPreserveText("Page {PAGE} of {NUMPAGES}", [
         'size' => 8,
@@ -170,16 +202,16 @@ function generate_word_jc()
 
     // ✅ Main Content
     $section->addText('Job Card', ['bold' => true, 'size' => 18, 'alignment' => 'center']);
-    
+
     // ✅ Client Information
-    $section->addText('Client Information', ['bold' => true, 'size' => 10]);
+    $section->addText('Client Information', ['bold' => true, 'size' => 12]);
     foreach (['name', 'address', 'email', 'phone'] as $field) {
         $section->addText(ucfirst($field) . ': ' . ($client_info[$field] ?? 'N/A'));
     }
     $section->addTextBreak(1);
 
     // ✅ Quote Information
-    $section->addText('Quote Information', ['bold' => true, 'size' => 10]);
+    $section->addText('Quote Information', ['bold' => true, 'size' => 12]);
     foreach (['quote_number', 'quote_date', 'expiry_date'] as $field) {
         $section->addText(ucfirst(str_replace('_', ' ', $field)) . ': ' . ($quote_info[$field] ?? 'N/A'));
     }
@@ -188,19 +220,16 @@ function generate_word_jc()
     // ✅ Line Items with Extra Instructions
     $section->addText('Line Items', ['bold' => true, 'size' => 12]);
     foreach ($items as $index => $item) {
-        $extra_text = $extra_instructions[$index] ?? ''; // ✅ Correct way to access
-
+        $extra_text = $extra_instructions[$index] ?? '';
         $section->addText("Item: " . ($item['item_name'] ?? 'N/A'));
         $section->addText("Extra Instructions: " . $extra_text);
         $section->addTextBreak(1);
         $section->addLine(['weight' => 0.5, 'width' => 450, 'height' => 0, 'color' => 'CCCCCC']);
     }
 
-    // ✅ Images displayed side by side
+    // ✅ Add Images (if available)
     if (!empty($images)) {
         $section->addText('Site Images', ['bold' => true, 'size' => 12]);
-
-        // Create table for images
         $table = $section->addTable();
         $image_count = 0;
         $max_images_per_row = 3;
@@ -220,42 +249,80 @@ function generate_word_jc()
         $section->addText("No images available.");
     }
 
-    // ✅ Filename with Quote Number & Client Name
-    $quote_number = $quote_info['quote_number'] ?? 'N/A';
-    $client_name = preg_replace('/[^a-zA-Z0-9]/', '_', $client_info['name'] ?? 'N/A');
-    $filename = "jc-{$quote_number}-{$client_name}.docx";
+    // ✅ Save Word Document with Error Handling
+    try {
+        $writer = \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007');
+        $writer->save($file_path);
+    } catch (Exception $e) {
+        error_log("❌ Word document generation failed: " . $e->getMessage());
+        wp_send_json_error(['message' => 'Failed to generate Word document.']);
+        exit;
+    }
 
-    $upload_dir = wp_upload_dir();
-    $file_path = $upload_dir['path'] . '/' . $filename;
-    $file_url = $upload_dir['url'] . '/' . $filename;
+    // ✅ Verify File Creation
+    if (!file_exists($file_path)) {
+        error_log("❌ Failed to create Word document at: " . $file_path);
+        wp_send_json_error(['message' => 'Failed to create Word document.']);
+        exit;
+    }
 
-    // ✅ Save Word Document
-    $objWriter = IOFactory::createWriter($word, 'Word2007');
-    $objWriter->save($file_path);
+    // ✅ Get Correct URL for Download
+    $file_url = plugins_url('word-job-cards/' . $filename, __DIR__);
+   delete_pdf_images();
+    // ✅ Debug: Log Download URL
+    error_log("📥 Word Job Card Download URL: " . $file_url);
 
-    // ✅ Delete Images in `pdf-images/` After Job Card is Processed
-    delete_pdf_images();
+    // ✅ Send Response with Download URL
+    wp_send_json_success(['download_url' => esc_url($file_url)]);
+    exit;
 
-    wp_send_json_success(['download_url' => $file_url]);
+ 
 }
+
+// ✅ Register AJAX Actions
 add_action('wp_ajax_generate_word_jc', 'generate_word_jc');
+add_action('wp_ajax_nopriv_generate_word_jc', 'generate_word_jc'); // ✅ Allow frontend users to access
+
+
 
 /**
  * Delete all images inside 'pdf-images/' but leave 'hash-images/' untouched.
  */
 function delete_pdf_images()
 {
-    $images_dir = PR_QUOTES_PLUGIN_DIR . 'pdf-images/';
+    // ✅ Get Correct Path to `pdf-images` Folder
+    $images_dir = plugin_dir_path(__DIR__) . 'pdf-images/';
 
-    // Ensure the directory exists before deleting
-    if (is_dir($images_dir)) {
-        foreach (glob($images_dir . '*.{jpg,png}', GLOB_BRACE) as $file) {
-            if (is_file($file)) {
-                unlink($file);
+    // ✅ Check if Directory Exists
+    if (!is_dir($images_dir)) {
+        error_log("🛑 Images directory does not exist: " . $images_dir);
+        return;
+    }
+
+    // ✅ Scan Directory for Image Files
+    $files = scandir($images_dir);
+    if ($files === false) {
+        error_log("🛑 Failed to read directory: " . $images_dir);
+        return;
+    }
+
+    // ✅ Delete Each Image
+    foreach ($files as $file) {
+        if ($file !== "." && $file !== "..") {
+            $file_path = $images_dir . $file;
+            if (is_file($file_path)) {
+                error_log("🗑 Deleting image: " . basename($file_path));
+                unlink($file_path);
+            } else {
+                error_log("⚠️ Skipping non-file: " . basename($file_path));
             }
         }
     }
+
+    error_log("✅ All images deleted successfully from: " . $images_dir);
 }
+
+
 
 
 
