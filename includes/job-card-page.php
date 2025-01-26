@@ -95,14 +95,14 @@ if (!empty($word_files)) {
                 </tbody>
             </table>
         </div>
-        
+
         <button id="download-job-card" class="btn btn-primary" style="margin-top: 10px; margin-bottom: 20px; padding: 10px; width: 300px;">
     Download Job Card
     </button>
-    <?php endif; ?> 
+  
 
         <?php if (!empty($quote_data['images'])) : ?>
-            <div class="table-responsive">
+            <div class="table-responsive" style="margin-bottom: 100px;">
                 <h3>Site Images</h3>
                 <div class="d-flex flex-wrap" style="display: flex; flex-wrap: wrap; gap: 8px;">
                     <?php foreach ($quote_data['images'] as $image_url) : ?>
@@ -115,9 +115,9 @@ if (!empty($word_files)) {
             </div>
         <?php else : ?>
             <div style="margin-bottom: 100px;"><p>No images found in job card.</p></div>
-        <?php endif; ?>
+    <?php endif; ?>
 
-
+    <?php endif; ?> 
 
     <script>
 var PR_QUOTES = {

@@ -150,48 +150,52 @@ function generate_word_jc()
         exit;
     }
 
-    // ✅ Log Received Data for Debugging
-    error_log("🔍 Received Data in generate_word_jc: " . print_r($_POST, true));
-
     $client_info = $_POST['client_info'] ?? [];
     $quote_info = $_POST['quote_info'] ?? [];
     $items = $_POST['items'] ?? [];
     $images = $_POST['images'] ?? [];
     $extra_instructions = $_POST['extra_instructions'] ?? [];
 
-    // ✅ Validate Required Data
     if (empty($client_info) || empty($quote_info) || empty($items)) {
         error_log("❌ Missing required data.");
         wp_send_json_error(['message' => 'Missing required data.']);
         exit;
     }
 
-    // ✅ Define Plugin Root Path
     $plugin_root_dir = plugin_dir_path(__DIR__);
     $word_job_cards_dir = $plugin_root_dir . 'word-job-cards/';
 
-    // ✅ Ensure Directory Exists
     if (!file_exists($word_job_cards_dir)) {
         mkdir($word_job_cards_dir, 0755, true);
     }
 
-    // ✅ Generate File Name
     $quote_number = !empty($quote_info['quote_number']) ? preg_replace('/[^a-zA-Z0-9]/', '_', $quote_info['quote_number']) : 'default_quote';
     $client_name = !empty($client_info['name']) ? preg_replace('/[^a-zA-Z0-9]/', '_', $client_info['name']) : 'default_client';
     $filename = "jc-{$quote_number}-{$client_name}.docx";
     $file_path = $word_job_cards_dir . $filename;
 
-    // ✅ Create Word Document
     $phpWord = new \PhpOffice\PhpWord\PhpWord();
     $section = $phpWord->addSection();
 
-    // ✅ Add Header
-    $header = $section->addHeader();
-    $header->addText("Prompt Roofing Job Card | " . date('d M Y'), [
-        'size' => 8,
-        'color' => '888888',
-        'italic' => true
-    ], ['alignment' => 'center']);
+// ✅ Add Header
+$header = $section->addHeader();
+
+$client_name_display_h = $client_info['name'] ?? 'N/A';
+$quote_number_display_h = $quote_info['quote_number'] ?? 'N/A';
+
+// First Line: Company & Date
+$header->addText("Prompt Roofing Job Card | " . date('d M Y'), [
+    'size' => 8,
+    'color' => '888888',
+    'italic' => true
+], ['alignment' => 'center']);
+
+// Second Line: Client Name & Quote Number
+$header->addText("Client: {$client_name_display_h} | Quote #: {$quote_number_display_h}", [
+    'size' => 8,
+    'color' => '888888',
+    'italic' => true
+], ['alignment' => 'center']);
 
     // ✅ Add Footer with Page Numbers
     $footer = $section->addFooter();
@@ -224,8 +228,10 @@ function generate_word_jc()
         $section->addText("Item: " . ($item['item_name'] ?? 'N/A'));
         $section->addText("Extra Instructions: " . $extra_text);
         $section->addTextBreak(1);
-        $section->addLine(['weight' => 0.5, 'width' => 450, 'height' => 0, 'color' => 'CCCCCC']);
+        $section->addLine(['weight' => 0.3, 'width' => 450, 'height' => 0, 'color' => 'D3D3D3']);
     }
+
+
 
     // ✅ Add Images (if available)
     if (!empty($images)) {
@@ -248,6 +254,29 @@ function generate_word_jc()
     } else {
         $section->addText("No images available.");
     }
+        // ✅ ADD PAGE BREAK BEFORE CLIENT SIGN-OFF
+
+$section->addText('Client Sign-off:', ['bold' => true, 'size' => 12, 'underline' => 'single']);
+
+// ✅ ADD CLIENT NAME & QUOTE NUMBER NEXT TO SIGN-OFF
+$client_name_display = $client_info['name'] ?? 'N/A';
+$quote_number_display = $quote_info['quote_number'] ?? 'N/A';
+
+$section->addText("Client: {$client_name_display}    |    Quote #: {$quote_number_display}", ['size' => 11, 'bold' => true]);
+$section->addTextBreak(1);
+
+// ✅ CLIENT SIGNATURE SECTION
+$section->addText("Client Name: __________________________");
+$section->addTextBreak(1);
+$section->addText("Client Signature: _______________________                 Date: ________________________");
+
+$section->addTextBreak(2);
+$section->addText("Prompt Roofing:", ['bold' => true, 'size' => 12, 'underline' => 'single']);
+$section->addTextBreak(1);
+$section->addText("Name: __________________________");
+$section->addTextBreak(1);
+$section->addText("Prompt Roofing Signature: _______________________        Date: ________________________");
+$section->addTextBreak(2);
 
     // ✅ Save Word Document with Error Handling
     try {
@@ -259,29 +288,24 @@ function generate_word_jc()
         exit;
     }
 
-    // ✅ Verify File Creation
     if (!file_exists($file_path)) {
         error_log("❌ Failed to create Word document at: " . $file_path);
         wp_send_json_error(['message' => 'Failed to create Word document.']);
         exit;
     }
 
-    // ✅ Get Correct URL for Download
     $file_url = plugins_url('word-job-cards/' . $filename, __DIR__);
-   delete_pdf_images();
-    // ✅ Debug: Log Download URL
-    error_log("📥 Word Job Card Download URL: " . $file_url);
+    delete_pdf_images();
 
-    // ✅ Send Response with Download URL
+    error_log("📥 Word Job Card Download URL: " . $file_url);
     wp_send_json_success(['download_url' => esc_url($file_url)]);
     exit;
-
- 
 }
 
 // ✅ Register AJAX Actions
 add_action('wp_ajax_generate_word_jc', 'generate_word_jc');
 add_action('wp_ajax_nopriv_generate_word_jc', 'generate_word_jc'); // ✅ Allow frontend users to access
+
 
 
 
